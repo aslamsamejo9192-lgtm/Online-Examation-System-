@@ -1,4 +1,4 @@
-import type { Subject, Test, Question, TestAttempt, PdfNote, User, PortalSettings } from '../types';
+import type { Subject, Test, Question, TestAttempt, PdfNote, User, PortalSettings, StudentAccessKey } from '../types';
 import {
   collection,
   doc,
@@ -16,6 +16,7 @@ const STORAGE_KEYS = {
   ATTEMPTS: 'sotp_attempts_v3',
   PDF_NOTES: 'sotp_pdf_notes_v3',
   SETTINGS: 'sotp_settings_v3',
+  ACCESS_KEYS: 'sotp_access_keys_v3',
   INITIALIZED: 'sotp_initialized_v3',
 };
 
@@ -80,12 +81,50 @@ const initialUsers: User[] = [
   },
 ];
 
+// Pre-generated Unique Student Access Keys issued by administration
+const initialAccessKeys: StudentAccessKey[] = [
+  {
+    id: 'key_adm_01',
+    code: 'STU-7821-X4',
+    assignedToName: 'Authorized Student',
+    assignedToEmail: 'student@portal.edu',
+    rollNumber: 'ROLL-2026-001',
+    isUsed: false,
+    status: 'active',
+    createdAt: new Date().toISOString(),
+    notes: 'Primary administration issued student access authorization key',
+  },
+  {
+    id: 'key_adm_02',
+    code: 'STU-9345-M2',
+    assignedToName: '',
+    assignedToEmail: '',
+    rollNumber: 'ROLL-2026-002',
+    isUsed: false,
+    status: 'active',
+    createdAt: new Date().toISOString(),
+    notes: 'Administration issued unique student access key',
+  },
+  {
+    id: 'key_adm_03',
+    code: 'STU-1024-K8',
+    assignedToName: '',
+    assignedToEmail: '',
+    rollNumber: 'ROLL-2026-003',
+    isUsed: false,
+    status: 'active',
+    createdAt: new Date().toISOString(),
+    notes: 'Administration issued unique student access key',
+  },
+];
+
 const initialSettings: PortalSettings = {
   portalName: 'Student Online Test Portal',
   instituteName: 'Examination & Testing Authority',
   passPercentageDefault: 60,
   contactEmail: 'admin@portal.edu',
-  allowSelfRegistration: true,
+  allowSelfRegistration: false, // Restricted by default: only students with admin unique key can register
+  requireUniqueAccessKey: true, // Administration unique key required
 };
 
 // Helper storage functions
@@ -273,6 +312,34 @@ function setupRealtimeCloudSync() {
   } catch (e) {
     console.warn('Real-time sync setup warning for pdfNotes:', e);
   }
+
+  // 7. Sync ACCESS_KEYS collection (Real-time distribution of unique student keys)
+  try {
+    const keysCol = collection(db, 'accessKeys');
+    onSnapshot(
+      keysCol,
+      (snapshot) => {
+        if (!snapshot.empty) {
+          const cloudKeys: StudentAccessKey[] = [];
+          snapshot.forEach((d) => {
+            cloudKeys.push(d.data() as StudentAccessKey);
+          });
+          setStorage(STORAGE_KEYS.ACCESS_KEYS, cloudKeys);
+          notifySubscribers();
+        } else {
+          // Initialize cloud collection with starter administration keys
+          initialAccessKeys.forEach((key) => {
+            setDoc(doc(db, 'accessKeys', key.id), key).catch(() => {});
+          });
+        }
+      },
+      (error) => {
+        handleFirestoreError(error, OperationType.LIST, 'accessKeys');
+      }
+    );
+  } catch (e) {
+    console.warn('Real-time sync setup warning for accessKeys:', e);
+  }
 }
 
 // Initializer: guarantees clean local starting state and starts cloud listeners
@@ -288,7 +355,13 @@ function initDatabase() {
     localStorage.setItem(STORAGE_KEYS.ATTEMPTS, JSON.stringify(initialAttempts));
     localStorage.setItem(STORAGE_KEYS.PDF_NOTES, JSON.stringify(initialPdfNotes));
     localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(initialSettings));
+    localStorage.setItem(STORAGE_KEYS.ACCESS_KEYS, JSON.stringify(initialAccessKeys));
     localStorage.setItem(STORAGE_KEYS.INITIALIZED, 'true');
+  } else {
+    // Ensure access keys storage exists even for pre-initialized browsers
+    if (!localStorage.getItem(STORAGE_KEYS.ACCESS_KEYS)) {
+      localStorage.setItem(STORAGE_KEYS.ACCESS_KEYS, JSON.stringify(initialAccessKeys));
+    }
   }
 
   setupRealtimeCloudSync();
@@ -323,10 +396,255 @@ export const DatabaseService = {
     return this.getUsers().find((u) => u.uid === uid);
   },
 
+  getUserByUsername(username: string): User | undefined {
+    const clean = username.trim().toLowerCase();
+    if (!clean) return undefined;
+    return this.getUsers().find((u) => (u.username || '').trim().toLowerCase() === clean);
+  },
+
+  getUserByStudentId(studentId: string): User | undefined {
+    const clean = studentId.trim().toUpperCase();
+    if (!clean) return undefined;
+    return this.getUsers().find((u) => {
+      const sId = (u.studentId || '').trim().toUpperCase();
+      const aCode = (u.accessCode || '').trim().toUpperCase();
+      const rNum = (u.rollNumber || '').trim().toUpperCase();
+      return sId === clean || aCode === clean || rNum === clean;
+    });
+  },
+
+  // Universal Student Identifier Lookup: Username, Student ID, Email Address, or Roll Number
+  getUserByIdentifier(identifier: string): User | undefined {
+    const clean = identifier.trim().toLowerCase();
+    if (!clean) return undefined;
+
+    return this.getUsers().find((u) => {
+      const uEmail = (u.email || '').trim().toLowerCase();
+      const uUsername = (u.username || '').trim().toLowerCase();
+      const uStudentId = (u.studentId || '').trim().toLowerCase();
+      const uRoll = (u.rollNumber || '').trim().toLowerCase();
+      const uAccess = (u.accessCode || '').trim().toLowerCase();
+
+      return (
+        uEmail === clean ||
+        uUsername === clean ||
+        uStudentId === clean ||
+        uRoll === clean ||
+        uAccess === clean
+      );
+    });
+  },
+
+  // Generates next suggested Student ID formatted as STD-2026-001
+  getNextStudentId(): string {
+    const students = this.getStudents();
+    const currentYear = new Date().getFullYear();
+    const count = students.length + 1;
+    let nextId = `STD-${currentYear}-${String(count).padStart(3, '0')}`;
+
+    // Ensure uniqueness
+    let counter = count;
+    while (students.some((s) => (s.studentId || '').trim().toUpperCase() === nextId.toUpperCase())) {
+      counter++;
+      nextId = `STD-${currentYear}-${String(counter).padStart(3, '0')}`;
+    }
+    return nextId;
+  },
+
+  registerStudent(data: {
+    name: string;
+    fatherName?: string;
+    studentId?: string;
+    username?: string;
+    email?: string;
+    password?: string;
+    className?: string;
+    rollNumber?: string;
+    phone?: string;
+    status?: 'active' | 'blocked';
+  }): { success: boolean; user?: User; error?: string } {
+    const cleanName = data.name.trim();
+    if (!cleanName) {
+      return { success: false, error: 'Student full name is required.' };
+    }
+
+    const assignedStudentId = (data.studentId && data.studentId.trim())
+      ? data.studentId.trim().toUpperCase()
+      : this.getNextStudentId();
+
+    // Check if student ID already assigned
+    const existingById = this.getUsers().find(
+      (u) => (u.studentId || '').trim().toUpperCase() === assignedStudentId
+    );
+    if (existingById) {
+      return {
+        success: false,
+        error: `Student ID "${assignedStudentId}" is already assigned to ${existingById.name}. Please use a different ID.`,
+      };
+    }
+
+    // Generate or clean username
+    const baseUsername = data.username && data.username.trim()
+      ? data.username.trim().toLowerCase().replace(/[^a-z0-9_]/g, '')
+      : assignedStudentId.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    const existingByUsername = this.getUsers().find(
+      (u) => (u.username || '').trim().toLowerCase() === baseUsername
+    );
+    if (existingByUsername) {
+      return {
+        success: false,
+        error: `Username "${baseUsername}" is already taken by ${existingByUsername.name}. Please select a different username.`,
+      };
+    }
+
+    // Email: either provided or auto-generated based on studentId
+    const cleanEmail = (data.email && data.email.trim())
+      ? data.email.trim().toLowerCase()
+      : `${baseUsername}@portal.edu`;
+
+    const existingByEmail = this.getUsers().find(
+      (u) => (u.email || '').trim().toLowerCase() === cleanEmail
+    );
+    if (existingByEmail) {
+      return {
+        success: false,
+        error: `Email "${cleanEmail}" is already registered. Please use another email.`,
+      };
+    }
+
+    const initialPassword = (data.password && data.password.trim())
+      ? data.password.trim()
+      : 'student123';
+
+    const newUser: User = {
+      uid: `std_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      name: cleanName,
+      fatherName: data.fatherName?.trim() || '',
+      studentId: assignedStudentId,
+      username: baseUsername,
+      email: cleanEmail,
+      password: initialPassword,
+      role: 'student',
+      className: data.className?.trim() || '',
+      rollNumber: data.rollNumber?.trim().toUpperCase() || '',
+      phone: data.phone?.trim() || '',
+      accessCode: assignedStudentId,
+      status: data.status || 'active',
+      createdAt: new Date().toISOString(),
+    };
+
+    const created = this.createUser(newUser);
+
+    // Also mirror as an accessKey for backward compatibility if queried
+    try {
+      this.createAccessKey({
+        code: assignedStudentId,
+        assignedToName: cleanName,
+        assignedToEmail: cleanEmail,
+        rollNumber: data.rollNumber?.trim().toUpperCase() || '',
+        notes: `Registered student: ${cleanName} (${assignedStudentId})`,
+      });
+      this.markAccessKeyUsed(assignedStudentId, created.uid, created.name);
+    } catch (e) {}
+
+    return { success: true, user: created };
+  },
+
+  updateStudent(
+    uid: string,
+    updates: Partial<Omit<User, 'uid' | 'role' | 'createdAt'>>
+  ): { success: boolean; user?: User; error?: string } {
+    const users = this.getUsers();
+    const idx = users.findIndex((u) => u.uid === uid);
+    if (idx === -1) {
+      return { success: false, error: 'Student record not found.' };
+    }
+
+    // Check unique constraints if username changed
+    if (updates.username) {
+      const cleanU = updates.username.trim().toLowerCase();
+      const existing = users.find((u) => u.uid !== uid && (u.username || '').toLowerCase() === cleanU);
+      if (existing) {
+        return { success: false, error: `Username "${cleanU}" is already taken.` };
+      }
+      updates.username = cleanU;
+    }
+
+    // Check unique constraints if studentId changed
+    if (updates.studentId) {
+      const cleanId = updates.studentId.trim().toUpperCase();
+      const existing = users.find((u) => u.uid !== uid && (u.studentId || '').toUpperCase() === cleanId);
+      if (existing) {
+        return { success: false, error: `Student ID "${cleanId}" is already assigned to another student.` };
+      }
+      updates.studentId = cleanId;
+      updates.accessCode = cleanId;
+    }
+
+    users[idx] = { ...users[idx], ...updates };
+    setStorage(STORAGE_KEYS.USERS, users);
+    notifySubscribers();
+
+    try {
+      setDoc(doc(db, 'users', uid), users[idx], { merge: true }).catch((err) => {
+        handleFirestoreError(err, OperationType.UPDATE, `users/${uid}`);
+      });
+    } catch (e) {}
+
+    return { success: true, user: users[idx] };
+  },
+
+  deleteStudent(uid: string): boolean {
+    const users = this.getUsers();
+    const filtered = users.filter((u) => u.uid !== uid);
+    if (filtered.length === users.length) return false;
+
+    setStorage(STORAGE_KEYS.USERS, filtered);
+    notifySubscribers();
+
+    try {
+      deleteDoc(doc(db, 'users', uid)).catch((err) => {
+        handleFirestoreError(err, OperationType.DELETE, `users/${uid}`);
+      });
+    } catch (e) {}
+
+    return true;
+  },
+
+  getUserByAccessCode(code: string): User | undefined {
+    const clean = code.trim().toUpperCase();
+    if (!clean) return undefined;
+    return this.getUsers().find((u) => {
+      const uCode = (u.accessCode || '').trim().toUpperCase();
+      const uRoll = (u.rollNumber || '').trim().toUpperCase();
+      return uCode === clean || uRoll === clean;
+    });
+  },
+
+  updateUserStatus(uid: string, status: 'active' | 'blocked'): boolean {
+    const users = this.getUsers();
+    const idx = users.findIndex((u) => u.uid === uid);
+    if (idx === -1) return false;
+    users[idx] = { ...users[idx], status };
+    setStorage(STORAGE_KEYS.USERS, users);
+    notifySubscribers();
+
+    try {
+      setDoc(doc(db, 'users', uid), users[idx], { merge: true }).catch((err) => {
+        handleFirestoreError(err, OperationType.UPDATE, `users/${uid}`);
+      });
+    } catch (e) {
+      console.error('Error updating user status in Firestore:', e);
+    }
+    return true;
+  },
+
   createUser(user: Omit<User, 'createdAt'> & { createdAt?: string }): User {
     const users = this.getUsers();
     const newUser: User = {
       ...user,
+      status: user.status || 'active',
       createdAt: user.createdAt || new Date().toISOString(),
     };
 
@@ -857,6 +1175,219 @@ export const DatabaseService = {
     }
 
     return true;
+  },
+
+  // ---- STUDENT ACCESS KEYS (ADMINISTRATION ISSUED UNIQUE KEYS) ----
+  getAccessKeys(): StudentAccessKey[] {
+    return getStorage<StudentAccessKey[]>(STORAGE_KEYS.ACCESS_KEYS, initialAccessKeys);
+  },
+
+  getAccessKeyByCode(code: string): StudentAccessKey | undefined {
+    const clean = code.trim().toUpperCase();
+    if (!clean) return undefined;
+    return this.getAccessKeys().find(
+      (k) => k.code.trim().toUpperCase() === clean || (k.rollNumber && k.rollNumber.trim().toUpperCase() === clean)
+    );
+  },
+
+  validateAccessKey(code: string, email?: string): { valid: boolean; key?: StudentAccessKey; error?: string } {
+    const cleanCode = code.trim().toUpperCase();
+    if (!cleanCode) {
+      return { valid: false, error: 'Please enter a valid Unique Student Access Key.' };
+    }
+
+    const key = this.getAccessKeyByCode(cleanCode);
+    if (!key) {
+      return {
+        valid: false,
+        error: 'Invalid Access Key. Only students provided with a unique access key by the administration can access.',
+      };
+    }
+
+    if (key.status === 'revoked') {
+      return {
+        valid: false,
+        error: 'This access key has been revoked by administration. Please contact administration.',
+      };
+    }
+
+    if (key.isUsed || key.status === 'used') {
+      // If student is already registered with this key and email matches, it's valid for them
+      if (email && key.usedByStudentId) {
+        const student = this.getUserById(key.usedByStudentId);
+        if (student && student.email.toLowerCase() === email.trim().toLowerCase()) {
+          return { valid: true, key };
+        }
+      }
+      return {
+        valid: false,
+        error: 'This Access Key has already been used by another student. Each student must have their own unique key.',
+      };
+    }
+
+    // If key was explicitly assigned to a specific email
+    if (key.assignedToEmail && email) {
+      if (key.assignedToEmail.trim().toLowerCase() !== email.trim().toLowerCase()) {
+        return {
+          valid: false,
+          error: `This unique key is assigned specifically to ${key.assignedToEmail}. Please use your own assigned key.`,
+        };
+      }
+    }
+
+    return { valid: true, key };
+  },
+
+  createAccessKey(data: {
+    assignedToName?: string;
+    assignedToEmail?: string;
+    rollNumber?: string;
+    notes?: string;
+    code?: string;
+  }): StudentAccessKey {
+    const keys = this.getAccessKeys();
+
+    // Auto-generate code if not provided
+    const randomHex = Math.random().toString(36).substring(2, 6).toUpperCase();
+    const randomNum = Math.floor(1000 + Math.random() * 9000);
+    const code = (data.code || `STU-${randomNum}-${randomHex}`).trim().toUpperCase();
+
+    const newKey: StudentAccessKey = {
+      id: `key_${Date.now()}_${Math.random().toString(36).substring(2, 5)}`,
+      code,
+      assignedToName: data.assignedToName?.trim() || '',
+      assignedToEmail: data.assignedToEmail?.trim().toLowerCase() || '',
+      rollNumber: data.rollNumber?.trim().toUpperCase() || '',
+      isUsed: false,
+      status: 'active',
+      createdAt: new Date().toISOString(),
+      notes: data.notes?.trim() || 'Issued by administration',
+    };
+
+    keys.unshift(newKey);
+    setStorage(STORAGE_KEYS.ACCESS_KEYS, keys);
+    notifySubscribers();
+
+    try {
+      setDoc(doc(db, 'accessKeys', newKey.id), newKey).catch((err) => {
+        handleFirestoreError(err, OperationType.WRITE, `accessKeys/${newKey.id}`);
+      });
+    } catch (e) {
+      console.error('Error saving access key to Firestore:', e);
+    }
+
+    return newKey;
+  },
+
+  generateBatchAccessKeys(count: number, prefix: string = 'STU'): StudentAccessKey[] {
+    const created: StudentAccessKey[] = [];
+    for (let i = 0; i < count; i++) {
+      const randomHex = Math.random().toString(36).substring(2, 6).toUpperCase();
+      const randomNum = Math.floor(1000 + Math.random() * 9000);
+      const code = `${prefix.trim().toUpperCase()}-${randomNum}-${randomHex}`;
+      const key = this.createAccessKey({ code, notes: 'Bulk generated administration access key' });
+      created.push(key);
+    }
+    return created;
+  },
+
+  markAccessKeyUsed(code: string, studentId: string, studentName: string): boolean {
+    const keys = this.getAccessKeys();
+    const clean = code.trim().toUpperCase();
+    const idx = keys.findIndex(
+      (k) => k.code.trim().toUpperCase() === clean || (k.rollNumber && k.rollNumber.trim().toUpperCase() === clean)
+    );
+    if (idx === -1) return false;
+
+    keys[idx] = {
+      ...keys[idx],
+      isUsed: true,
+      status: 'used',
+      usedByStudentId: studentId,
+      usedByStudentName: studentName,
+      usedAt: new Date().toISOString(),
+    };
+    setStorage(STORAGE_KEYS.ACCESS_KEYS, keys);
+    notifySubscribers();
+
+    try {
+      setDoc(doc(db, 'accessKeys', keys[idx].id), keys[idx], { merge: true }).catch((err) => {
+        handleFirestoreError(err, OperationType.UPDATE, `accessKeys/${keys[idx].id}`);
+      });
+    } catch (e) {
+      console.error('Error updating access key in Firestore:', e);
+    }
+    return true;
+  },
+
+  revokeAccessKey(id: string): boolean {
+    const keys = this.getAccessKeys();
+    const idx = keys.findIndex((k) => k.id === id);
+    if (idx === -1) return false;
+
+    keys[idx] = { ...keys[idx], status: 'revoked' };
+    setStorage(STORAGE_KEYS.ACCESS_KEYS, keys);
+    notifySubscribers();
+
+    try {
+      setDoc(doc(db, 'accessKeys', id), { status: 'revoked' }, { merge: true }).catch((err) => {
+        handleFirestoreError(err, OperationType.UPDATE, `accessKeys/${id}`);
+      });
+    } catch (e) {}
+    return true;
+  },
+
+  deleteAccessKey(id: string): boolean {
+    const keys = this.getAccessKeys();
+    const filtered = keys.filter((k) => k.id !== id);
+    if (filtered.length === keys.length) return false;
+    setStorage(STORAGE_KEYS.ACCESS_KEYS, filtered);
+    notifySubscribers();
+
+    try {
+      deleteDoc(doc(db, 'accessKeys', id)).catch((err) => {
+        handleFirestoreError(err, OperationType.DELETE, `accessKeys/${id}`);
+      });
+    } catch (e) {}
+    return true;
+  },
+
+  enrollStudentDirectly(data: {
+    name: string;
+    email: string;
+    password?: string;
+    rollNumber?: string;
+    accessCode?: string;
+  }): { user: User; accessKey: StudentAccessKey } {
+    const cleanEmail = data.email.trim().toLowerCase();
+    const assignedCode =
+      (data.accessCode || `STU-${Math.floor(1000 + Math.random() * 9000)}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`).trim().toUpperCase();
+
+    // 1. Create access key
+    const accessKey = this.createAccessKey({
+      code: assignedCode,
+      assignedToName: data.name.trim(),
+      assignedToEmail: cleanEmail,
+      rollNumber: data.rollNumber?.trim().toUpperCase(),
+      notes: 'Directly enrolled student by administration',
+    });
+
+    // 2. Create student user account
+    const user = this.createUser({
+      uid: `std_${Date.now()}`,
+      name: data.name.trim(),
+      email: cleanEmail,
+      password: data.password?.trim() || 'student123',
+      role: 'student',
+      accessCode: assignedCode,
+      rollNumber: data.rollNumber?.trim().toUpperCase() || '',
+      status: 'active',
+    });
+
+    // 3. Mark key as used
+    this.markAccessKeyUsed(assignedCode, user.uid, user.name);
+
+    return { user, accessKey };
   },
 
   // ---- SETTINGS ----

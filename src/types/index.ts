@@ -7,9 +7,32 @@ export interface User {
   role: UserRole;
   password?: string;
   createdAt: string;
+  studentId?: string; // Formatted Student ID, e.g. STD-2026-001
+  username?: string; // Unique student username
+  fatherName?: string; // Student father/guardian name
+  className?: string; // Class, grade or batch
+  phone?: string; // Contact or WhatsApp number
+  accessCode?: string; // Unique admin-provided access key
+  rollNumber?: string; // Optional student roll number
+  status?: 'active' | 'blocked';
 }
 
 export type UserProfile = User;
+
+export interface StudentAccessKey {
+  id: string;
+  code: string; // e.g. STU-9482-A7
+  assignedToName?: string;
+  assignedToEmail?: string;
+  rollNumber?: string;
+  isUsed: boolean;
+  usedByStudentId?: string;
+  usedByStudentName?: string;
+  usedAt?: string;
+  status: 'active' | 'used' | 'revoked';
+  createdAt: string;
+  notes?: string;
+}
 
 export interface Subject {
   id: string;
@@ -89,4 +112,5 @@ export interface PortalSettings {
   passPercentageDefault: number;
   contactEmail: string;
   allowSelfRegistration: boolean;
+  requireUniqueAccessKey: boolean;
 }

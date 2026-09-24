@@ -5,8 +5,9 @@ import { DatabaseService } from '../services/db';
 interface AuthContextType {
   currentUser: User | null;
   loading: boolean;
-  login: (email: string, password?: string) => Promise<{ success: boolean; error?: string }>;
-  register: (name: string, email: string, password?: string) => Promise<{ success: boolean; error?: string }>;
+  login: (identifier: string, password?: string) => Promise<{ success: boolean; error?: string }>;
+  loginWithAccessCode: (code: string) => Promise<{ success: boolean; error?: string }>;
+  register: (name: string, email: string, password?: string, accessCode?: string) => Promise<{ success: boolean; error?: string }>;
   adminLogin: (email: string, password?: string) => Promise<{ success: boolean; error?: string }>;
   adminRegister: (name: string, email: string, password: string, securityPasscode?: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
@@ -44,21 +45,49 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setLoading(false);
   }, []);
 
-  const login = async (email: string, password?: string): Promise<{ success: boolean; error?: string }> => {
-    const cleanEmail = email.trim().toLowerCase();
-    const user = DatabaseService.getUserByEmail(cleanEmail);
+  const login = async (identifier: string, password?: string): Promise<{ success: boolean; error?: string }> => {
+    const clean = identifier.trim();
+    if (!clean) {
+      return { success: false, error: 'Please enter your Student ID, Username, or Email Address.' };
+    }
+
+    if (!password || !password.trim()) {
+      return { success: false, error: 'Please enter your password.' };
+    }
+
+    // Universal lookup: Student ID, Username, Email, or Roll Number
+    let user = DatabaseService.getUserByIdentifier(clean);
+    if (!user) {
+      user = DatabaseService.getUserByStudentId(clean);
+    }
+    if (!user) {
+      user = DatabaseService.getUserByUsername(clean);
+    }
+    if (!user) {
+      user = DatabaseService.getUserByEmail(clean.toLowerCase());
+    }
 
     if (!user) {
-      return { success: false, error: 'No student account found with this email. Please create a student account.' };
+      return {
+        success: false,
+        error: 'No student record found with this Student ID, Username, or Email. Please contact your administration to obtain your Student ID.',
+      };
     }
 
     if (user.role !== 'student') {
-      return { success: false, error: 'This is an administrator account. Please use the Admin Login page.' };
+      return { success: false, error: 'This is an administrator account. Please use the Admin Login portal.' };
     }
 
-    // Password verification for student
-    if (user.password && password && user.password !== password) {
-      return { success: false, error: 'Incorrect password. Please enter the correct password.' };
+    if (user.status === 'blocked') {
+      return {
+        success: false,
+        error: 'Your student account has been deactivated by administration. Please contact your institution office.',
+      };
+    }
+
+    // Password verification
+    if (user.password && user.password !== password.trim()) {
+      return { success: false, error: 'Incorrect password. Please enter the valid password provided by administration.' };
     }
 
     setCurrentUser(user);
@@ -66,13 +95,88 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { success: true };
   };
 
-  const register = async (name: string, email: string, password?: string): Promise<{ success: boolean; error?: string }> => {
-    const cleanEmail = email.trim().toLowerCase();
-    const existing = DatabaseService.getUserByEmail(cleanEmail);
+  const loginWithAccessCode = async (code: string): Promise<{ success: boolean; error?: string }> => {
+    const cleanCode = code.trim().toUpperCase();
+    if (!cleanCode) {
+      return { success: false, error: 'Please enter your unique student access key.' };
+    }
 
+    // Check if an existing student already has this access code or roll number
+    const registeredStudent = DatabaseService.getUserByAccessCode(cleanCode);
+    if (registeredStudent) {
+      if (registeredStudent.status === 'blocked') {
+        return { success: false, error: 'Your student account has been deactivated by administration.' };
+      }
+      setCurrentUser(registeredStudent);
+      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(registeredStudent));
+      return { success: true };
+    }
+
+    // Validate against administration issued access keys
+    const validation = DatabaseService.validateAccessKey(cleanCode);
+    if (!validation.valid || !validation.key) {
+      return {
+        success: false,
+        error: validation.error || 'Invalid Unique Access Key. Only students authorized by administration can log in.',
+      };
+    }
+
+    const key = validation.key;
+    const studentName = key.assignedToName || `Student (${key.code})`;
+    const studentEmail =
+      key.assignedToEmail || `${key.code.toLowerCase().replace(/[^a-z0-9]/g, '')}@student.portal`;
+
+    const newUser = DatabaseService.createUser({
+      uid: `std_${Date.now()}`,
+      name: studentName,
+      email: studentEmail,
+      role: 'student',
+      accessCode: key.code,
+      rollNumber: key.rollNumber || '',
+      status: 'active',
+    });
+
+    DatabaseService.markAccessKeyUsed(key.code, newUser.uid, newUser.name);
+    setCurrentUser(newUser);
+    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(newUser));
+    return { success: true };
+  };
+
+  const register = async (
+    name: string,
+    email: string,
+    password?: string,
+    accessCode?: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    const cleanEmail = email.trim().toLowerCase();
+    const settings = DatabaseService.getSettings();
+
+    // Check administration unique key enforcement
+    if (settings.requireUniqueAccessKey) {
+      if (!accessCode || !accessCode.trim()) {
+        return {
+          success: false,
+          error: 'Registration is restricted: You must provide a valid Unique Student Access Key issued by the administration.',
+        };
+      }
+
+      const keyCheck = DatabaseService.validateAccessKey(accessCode.trim(), cleanEmail);
+      if (!keyCheck.valid) {
+        return { success: false, error: keyCheck.error };
+      }
+    } else if (!settings.allowSelfRegistration) {
+      return {
+        success: false,
+        error: 'Registration is currently disabled by administration. Only authorized students can log in.',
+      };
+    }
+
+    const existing = DatabaseService.getUserByEmail(cleanEmail);
     if (existing) {
       return { success: false, error: 'An account with this email already exists. Please log in.' };
     }
+
+    const cleanAccessCode = accessCode?.trim().toUpperCase();
 
     // Students can ONLY register as a student. Under no circumstances can they be assigned admin role.
     const newUser = DatabaseService.createUser({
@@ -81,7 +185,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       email: cleanEmail,
       role: 'student',
       password: password?.trim(),
+      accessCode: cleanAccessCode,
+      status: 'active',
     });
+
+    if (cleanAccessCode) {
+      DatabaseService.markAccessKeyUsed(cleanAccessCode, newUser.uid, newUser.name);
+    }
 
     setCurrentUser(newUser);
     localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(newUser));
@@ -193,6 +303,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         currentUser,
         loading,
         login,
+        loginWithAccessCode,
         register,
         adminLogin,
         adminRegister,

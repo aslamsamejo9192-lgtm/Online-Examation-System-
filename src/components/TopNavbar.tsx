@@ -174,15 +174,10 @@ export const TopNavbar: React.FC = () => {
               <div className="flex items-center space-x-2">
                 <Link
                   to="/login"
-                  className="px-4 py-2 text-xs font-bold text-slate-700 hover:text-blue-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+                  className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer flex items-center space-x-1.5"
                 >
-                  Sign In
-                </Link>
-                <Link
-                  to="/register"
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
-                >
-                  Create Account
+                  <UserIcon className="w-3.5 h-3.5" />
+                  <span>Student Sign In</span>
                 </Link>
               </div>
             )}
@@ -250,20 +245,13 @@ export const TopNavbar: React.FC = () => {
                 <span>Sign Out</span>
               </button>
             ) : (
-              <div className="grid grid-cols-2 gap-2 pt-1">
+              <div className="pt-1">
                 <Link
                   to="/login"
                   onClick={() => setMobileMenuOpen(false)}
-                  className="w-full py-2.5 text-center text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl"
+                  className="w-full py-2.5 text-center text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-xs block"
                 >
-                  Sign In
-                </Link>
-                <Link
-                  to="/register"
-                  onClick={() => setMobileMenuOpen(false)}
-                  className="w-full py-2.5 text-center text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-xs"
-                >
-                  Create Account
+                  Student Sign In
                 </Link>
               </div>
             )}

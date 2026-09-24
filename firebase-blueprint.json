@@ -103,12 +103,36 @@
         "createdAt": { "type": "string" }
       },
       "required": ["id", "title", "subjectId", "fileUrl", "isPublished", "createdAt"]
+    },
+    "StudentAccessKey": {
+      "title": "StudentAccessKey",
+      "description": "Unique administration-issued student access key for registration and login authorization",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "assignedToName": { "type": "string" },
+        "assignedToEmail": { "type": "string" },
+        "rollNumber": { "type": "string" },
+        "isUsed": { "type": "boolean" },
+        "usedByStudentId": { "type": "string" },
+        "usedByStudentName": { "type": "string" },
+        "usedAt": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "used", "revoked"] },
+        "createdAt": { "type": "string" },
+        "notes": { "type": "string" }
+      },
+      "required": ["id", "code", "status", "createdAt"]
     }
   },
   "firestore": {
     "/users/{userId}": {
       "schema": { "$ref": "#/entities/User" },
       "description": "Collection of registered student and admin profiles"
+    },
+    "/accessKeys/{keyId}": {
+      "schema": { "$ref": "#/entities/StudentAccessKey" },
+      "description": "Unique access keys issued by administration for student verification"
     },
     "/subjects/{subjectId}": {
       "schema": { "$ref": "#/entities/Subject" },

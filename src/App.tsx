@@ -69,9 +69,9 @@ const AdminRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   return <AdminLayout>{children}</AdminLayout>;
 };
 
-// Root route dispatcher: If authenticated -> /dashboard, else -> /register
+// Root route dispatcher: If authenticated -> /dashboard (or /admin), else -> /login
 const RootIndexRoute: React.FC = () => {
-  const { currentUser, loading } = useAuth();
+  const { currentUser, loading, isAdmin } = useAuth();
 
   if (loading) {
     return (
@@ -81,22 +81,22 @@ const RootIndexRoute: React.FC = () => {
     );
   }
 
-  // When a student opens the website for the first time, show Create Account (Register)
+  // When a user opens the website, authenticated users go to their portal, else directly to Student Login
   if (currentUser) {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to={isAdmin ? "/admin" : "/dashboard"} replace />;
   }
-  return <Navigate to="/register" replace />;
+  return <Navigate to="/login" replace />;
 };
 
 export const App: React.FC = () => {
   return (
     <Routes>
-      {/* Root Entry Point */}
+      {/* Root Entry Point: Starts directly at Login */}
       <Route path="/" element={<RootIndexRoute />} />
 
-      {/* Authentication Routes */}
-      <Route path="/register" element={<RegisterPage />} />
+      {/* Authentication Routes - Only Login is available; registration is handled by Administration */}
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/register" element={<Navigate to="/login" replace />} />
       <Route path="/admin/login" element={<AdminLoginPage />} />
       <Route path="/admin/register" element={<AdminRegisterPage />} />
 

@@ -13,7 +13,8 @@ import {
   TrendingUp,
   CheckCircle2,
   Clock,
-  Sparkles
+  Sparkles,
+  UserPlus
 } from 'lucide-react';
 
 export const AdminDashboardPage: React.FC = () => {
@@ -163,7 +164,18 @@ export const AdminDashboardPage: React.FC = () => {
       {/* Quick Admin Actions */}
       <div className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-xs">
         <h2 className="text-base font-bold text-slate-900 mb-4">Quick Actions</h2>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+          <Link
+            to="/admin/students"
+            className="p-4 rounded-xl border border-slate-200 hover:border-blue-500 hover:bg-blue-50/50 transition-all flex flex-col items-center text-center group"
+          >
+            <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
+              <UserPlus className="w-5 h-5" />
+            </div>
+            <span className="text-xs font-bold text-slate-800">Register Student</span>
+            <span className="text-[10px] text-slate-500 mt-0.5">Assign Student ID</span>
+          </Link>
+
           <Link
             to="/admin/tests"
             className="p-4 rounded-xl border border-slate-200 hover:border-blue-500 hover:bg-blue-50/50 transition-all flex flex-col items-center text-center group"
