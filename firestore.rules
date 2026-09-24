@@ -1,0 +1,80 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128;
+    }
+
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Users collection (Students and Admins)
+    match /users/{userId} {
+      allow read: if true;
+      allow create: if isValidId(userId)
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 100
+        && request.resource.data.email is string
+        && request.resource.data.email.size() > 0
+        && request.resource.data.email.size() <= 150
+        && request.resource.data.role in ['student', 'admin'];
+      allow update: if isValidId(userId);
+      allow delete: if isValidId(userId);
+    }
+
+    // Subjects collection
+    match /subjects/{subjectId} {
+      allow read: if true;
+      allow create, update: if isValidId(subjectId)
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0;
+      allow delete: if isValidId(subjectId);
+    }
+
+    // Tests collection
+    match /tests/{testId} {
+      allow read: if true;
+      allow create, update: if isValidId(testId)
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0;
+      allow delete: if isValidId(testId);
+    }
+
+    // Questions root collection
+    match /questions/{questionId} {
+      allow read: if true;
+      allow list: if true;
+      allow get: if true;
+      allow create, update: if isValidId(questionId)
+        && request.resource.data.questionText is string;
+      allow delete: if isValidId(questionId);
+    }
+
+    // System connection check
+    match /system/{docId} {
+      allow read, write: if true;
+    }
+
+    // Test attempts & results
+    match /testAttempts/{attemptId} {
+      allow read: if true;
+      allow create: if isValidId(attemptId)
+        && request.resource.data.testId is string
+        && request.resource.data.studentId is string;
+      allow update, delete: if isValidId(attemptId);
+    }
+
+    // PDF notes
+    match /pdfNotes/{noteId} {
+      allow read: if true;
+      allow create, update: if isValidId(noteId)
+        && request.resource.data.title is string;
+      allow delete: if isValidId(noteId);
+    }
+  }
+}
+

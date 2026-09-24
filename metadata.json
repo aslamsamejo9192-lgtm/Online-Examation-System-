@@ -1,0 +1,6 @@
+{
+  "name": "Student Online Test Portal",
+  "description": "A complete, simple, modern and responsive Student Online Test Portal for taking MCQ tests, checking instant results, and accessing PDF notes.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,138 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile for students and administrators",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["student", "admin"] },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["uid", "name", "email", "role", "createdAt"]
+    },
+    "Subject": {
+      "title": "Subject",
+      "description": "Academic subject category for tests and notes",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "code": { "type": "string" },
+        "description": { "type": "string" },
+        "color": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "name", "code", "createdAt"]
+    },
+    "Test": {
+      "title": "Test",
+      "description": "Online MCQ examination definition",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "subjectId": { "type": "string" },
+        "subjectName": { "type": "string" },
+        "durationMinutes": { "type": "number" },
+        "totalMarks": { "type": "number" },
+        "totalQuestions": { "type": "number" },
+        "passPercentage": { "type": "number" },
+        "isPublished": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "title", "subjectId", "durationMinutes", "totalMarks", "isPublished", "createdAt"]
+    },
+    "Question": {
+      "title": "Question",
+      "description": "Multiple choice question with 4 options and 1 correct answer",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "testId": { "type": "string" },
+        "questionText": { "type": "string" },
+        "options": { "type": "array" },
+        "correctOptionIndex": { "type": "number" },
+        "marks": { "type": "number" },
+        "explanation": { "type": "string" }
+      },
+      "required": ["id", "testId", "questionText", "options", "correctOptionIndex", "marks"]
+    },
+    "TestAttempt": {
+      "title": "TestAttempt",
+      "description": "Student test submission with scores, status and answer record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "testId": { "type": "string" },
+        "testTitle": { "type": "string" },
+        "subjectName": { "type": "string" },
+        "studentId": { "type": "string" },
+        "studentName": { "type": "string" },
+        "studentEmail": { "type": "string" },
+        "totalQuestions": { "type": "number" },
+        "answeredQuestions": { "type": "number" },
+        "correctAnswers": { "type": "number" },
+        "wrongAnswers": { "type": "number" },
+        "obtainedMarks": { "type": "number" },
+        "totalMarks": { "type": "number" },
+        "percentage": { "type": "number" },
+        "status": { "type": "string", "enum": ["Passed", "Failed", "In Progress"] },
+        "answers": { "type": "object" },
+        "startedAt": { "type": "string" },
+        "submittedAt": { "type": "string" }
+      },
+      "required": ["id", "testId", "studentId", "obtainedMarks", "totalMarks", "percentage", "status", "submittedAt"]
+    },
+    "PdfNote": {
+      "title": "PdfNote",
+      "description": "Downloadable academic PDF document or study material",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "subjectId": { "type": "string" },
+        "subjectName": { "type": "string" },
+        "description": { "type": "string" },
+        "fileUrl": { "type": "string" },
+        "fileSize": { "type": "string" },
+        "pageCount": { "type": "number" },
+        "isPublished": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "title", "subjectId", "fileUrl", "isPublished", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Collection of registered student and admin profiles"
+    },
+    "/subjects/{subjectId}": {
+      "schema": { "$ref": "#/entities/Subject" },
+      "description": "Dynamic subjects created by admin"
+    },
+    "/tests/{testId}": {
+      "schema": { "$ref": "#/entities/Test" },
+      "description": "Available and draft tests"
+    },
+    "/questions/{questionId}": {
+      "schema": { "$ref": "#/entities/Question" },
+      "description": "MCQ questions bank linked by testId"
+    },
+    "/tests/{testId}/questions/{questionId}": {
+      "schema": { "$ref": "#/entities/Question" },
+      "description": "MCQ items belonging to tests"
+    },
+    "/testAttempts/{attemptId}": {
+      "schema": { "$ref": "#/entities/TestAttempt" },
+      "description": "Test submissions and student results"
+    },
+    "/pdfNotes/{noteId}": {
+      "schema": { "$ref": "#/entities/PdfNote" },
+      "description": "Academic study materials and notes"
+    }
+  }
+}
